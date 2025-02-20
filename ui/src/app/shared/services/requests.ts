@@ -51,24 +51,35 @@ export default {
     },
 
     post(url: string) {
-        return initHandlers(agent.post(`${apiRoot()}${url}`));
+        return initHandlers(agent.post(`${apiRoot()}${url}`)).set('Content-Type', 'application/json');
     },
 
     put(url: string) {
-        return initHandlers(agent.put(`${apiRoot()}${url}`));
+        return initHandlers(agent.put(`${apiRoot()}${url}`)).set('Content-Type', 'application/json');
     },
 
     patch(url: string) {
-        return initHandlers(agent.patch(`${apiRoot()}${url}`));
+        return initHandlers(agent.patch(`${apiRoot()}${url}`)).set('Content-Type', 'application/json');
     },
 
     delete(url: string) {
-        return initHandlers(agent.del(`${apiRoot()}${url}`));
+        return initHandlers(agent.del(`${apiRoot()}${url}`)).set('Content-Type', 'application/json');
     },
 
     loadEventSource(url: string): Observable<string> {
         return Observable.create((observer: Observer<any>) => {
-            let eventSource = new EventSource(`${apiRoot()}${url}`);
+            const fullUrl = `${apiRoot()}${url}`;
+
+            // If there is an error, show it beforehand
+            fetch(fullUrl).then(response => {
+                if (!response.ok) {
+                    return response.text().then(text => {
+                        observer.error({status: response.status, statusText: response.statusText, body: text});
+                    });
+                }
+            });
+
+            let eventSource = new EventSource(fullUrl);
             eventSource.onmessage = msg => observer.next(msg.data);
             eventSource.onerror = e => () => {
                 observer.error(e);

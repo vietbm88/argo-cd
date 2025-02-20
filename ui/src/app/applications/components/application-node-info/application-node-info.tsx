@@ -9,16 +9,10 @@ import * as models from '../../../shared/models';
 import {services} from '../../../shared/services';
 import {ResourceTreeNode} from '../application-resource-tree/application-resource-tree';
 import {ApplicationResourcesDiff} from '../application-resources-diff/application-resources-diff';
-import {
-    ComparisonStatusIcon,
-    formatCreationTimestamp,
-    getPodReadinessGatesState,
-    getPodReadinessGatesState as _getPodReadinessGatesState,
-    getPodStateReason,
-    HealthStatusIcon
-} from '../utils';
+import {ComparisonStatusIcon, formatCreationTimestamp, getPodReadinessGatesState, getPodStateReason, HealthStatusIcon} from '../utils';
 import './application-node-info.scss';
-import {ReadinessGatesFailedWarning} from './readiness-gates-failed-warning';
+import {ReadinessGatesNotPassedWarning} from './readiness-gates-not-passed-warning';
+import Moment from 'react-moment';
 
 const RenderContainerState = (props: {container: any}) => {
     const state = (props.container.state?.waiting && 'waiting') || (props.container.state?.terminated && 'terminated') || (props.container.state?.running && 'running');
@@ -28,7 +22,21 @@ const RenderContainerState = (props: {container: any}) => {
 
     return (
         <div className='application-node-info__container'>
-            <div className='application-node-info__container--name'>{props.container.name}</div>
+            <div className='application-node-info__container--name'>
+                {props.container.state?.running ? (
+                    <span style={{marginRight: '4px'}}>
+                        <i className='fa fa-check-circle' style={{color: 'rgb(24, 190, 148)'}} />
+                    </span>
+                ) : (
+                    (props.container.state.terminated && props.container.state.terminated?.exitCode !== 0) ||
+                    (lastState && lastState?.exitCode !== 0 && (
+                        <span style={{marginRight: '4px'}}>
+                            <i className='fa fa-times-circle' style={{color: 'red'}} />
+                        </span>
+                    ))
+                )}
+                {props.container.name}
+            </div>
             <div>
                 {state && (
                     <>
@@ -55,14 +63,20 @@ const RenderContainerState = (props: {container: any}) => {
                 )}
                 <>
                     {' '}
-                    It is <span className='application-node-info__container--highlight'>{props.container?.started ? 'started' : 'not started'}</span> and
-                    <span className='application-node-info__container--highlight'>{props.container?.ready ? ' ready.' : ' not ready.'}</span>
+                    It is <span className='application-node-info__container--highlight'>{props.container?.started ? 'started' : 'not started'}</span>
+                    <span className='application-node-info__container--highlight'>{status === 'Completed' ? '.' : props.container?.ready ? ' and ready.' : ' and not ready.'}</span>
                 </>
                 <br />
                 {lastState && (
                     <>
                         <>
-                            The container last terminated with <span className='application-node-info__container--highlight'>exit code {lastState?.exitCode}</span>
+                            The container last terminated{' '}
+                            <span className='application-node-info__container--highlight'>
+                                <Moment fromNow={true} ago={true}>
+                                    {lastState.finishedAt}
+                                </Moment>{' '}
+                                ago with exit code {lastState?.exitCode}
+                            </span>
                         </>
                         {lastState?.reason && ' because of '}
                         <span title={props.container.lastState?.message || ''}>
@@ -115,6 +129,7 @@ export const ApplicationNodeInfo = (props: {
             )
         });
     }
+
     if (props.live) {
         if (props.node.kind === 'Pod') {
             const {reason, message, netContainerStatuses} = getPodStateReason(props.live);
@@ -184,7 +199,7 @@ export const ApplicationNodeInfo = (props: {
             } as any);
         }
     }
-
+    let showLiveState = true;
     if (props.links) {
         attributes.push({
             title: 'LINKS',
@@ -200,35 +215,76 @@ export const ApplicationNodeInfo = (props: {
                 <DataLoader load={() => services.viewPreferences.getPreferences()}>
                     {pref => {
                         const live = deepMerge(props.live, {}) as any;
+                        if (Object.keys(live).length === 0) {
+                            showLiveState = false;
+                        }
+
                         if (live?.metadata?.managedFields && pref.appDetails.hideManagedFields) {
                             delete live.metadata.managedFields;
                         }
                         return (
-                            <>
-                                <div className='application-node-info__checkboxes'>
-                                    <Checkbox
-                                        id='hideManagedFields'
-                                        checked={!!pref.appDetails.hideManagedFields}
-                                        onChange={() =>
-                                            services.viewPreferences.updatePreferences({
-                                                appDetails: {
-                                                    ...pref.appDetails,
-                                                    hideManagedFields: !pref.appDetails.hideManagedFields
+                            <React.Fragment>
+                                {showLiveState ? (
+                                    <React.Fragment>
+                                        <div className='application-node-info__checkboxes'>
+                                            <Checkbox
+                                                id='hideManagedFields'
+                                                checked={!!pref.appDetails.hideManagedFields}
+                                                onChange={() =>
+                                                    services.viewPreferences.updatePreferences({
+                                                        appDetails: {
+                                                            ...pref.appDetails,
+                                                            hideManagedFields: !pref.appDetails.hideManagedFields
+                                                        }
+                                                    })
                                                 }
-                                            })
-                                        }
-                                    />
-                                    <label htmlFor='hideManagedFields'>Hide Managed Fields</label>
-                                </div>
-                                <YamlEditor
-                                    input={live}
-                                    hideModeButtons={!live}
-                                    vScrollbar={live}
-                                    onSave={(patch, patchType) =>
-                                        services.applications.patchResource(props.application.metadata.name, props.application.metadata.namespace, props.node, patch, patchType)
-                                    }
-                                />
-                            </>
+                                            />
+                                            <label htmlFor='hideManagedFields'>Hide Managed Fields</label>
+                                            <Checkbox
+                                                id='enableWordWrap'
+                                                checked={!!pref.appDetails.enableWordWrap}
+                                                onChange={() =>
+                                                    services.viewPreferences.updatePreferences({
+                                                        appDetails: {
+                                                            ...pref.appDetails,
+                                                            enableWordWrap: !pref.appDetails.enableWordWrap
+                                                        }
+                                                    })
+                                                }
+                                            />
+                                            <label htmlFor='enableWordWrap'>Enable Word Wrap</label>
+                                        </div>
+                                        <YamlEditor
+                                            input={live}
+                                            hideModeButtons={!live}
+                                            vScrollbar={live}
+                                            enableWordWrap={pref.appDetails.enableWordWrap}
+                                            onSave={(patch, patchType) =>
+                                                services.applications.patchResource(
+                                                    props.application.metadata.name,
+                                                    props.application.metadata.namespace,
+                                                    props.node,
+                                                    patch,
+                                                    patchType
+                                                )
+                                            }
+                                        />
+                                    </React.Fragment>
+                                ) : (
+                                    <div className='application-node-info__err_msg'>
+                                        Resource not found in cluster:{' '}
+                                        {`${props?.controlled?.state?.targetState?.apiVersion}/${props?.controlled?.state?.targetState?.kind}:${props.node.name}`}
+                                        <br />
+                                        {props?.controlled?.state?.normalizedLiveState?.apiVersion && (
+                                            <span>
+                                                Please update your resource specification to use the latest Kubernetes API resources supported by the target cluster. The
+                                                recommended syntax is{' '}
+                                                {`${props.controlled.state.normalizedLiveState.apiVersion}/${props?.controlled.state.normalizedLiveState?.kind}:${props.node.name}`}
+                                            </span>
+                                        )}
+                                    </div>
+                                )}
+                            </React.Fragment>
                         );
                     }}
                 </DataLoader>
@@ -245,11 +301,42 @@ export const ApplicationNodeInfo = (props: {
         tabs.push({
             key: 'desiredManifest',
             title: 'Desired Manifest',
-            content: <YamlEditor input={props.controlled.state.targetState} hideModeButtons={true} />
+            content: (
+                <DataLoader load={() => services.viewPreferences.getPreferences()}>
+                    {pref => (
+                        <React.Fragment>
+                            <div className='application-node-info__checkboxes'>
+                                <Checkbox
+                                    id='enableWordWrap'
+                                    checked={!!pref.appDetails.enableWordWrap}
+                                    onChange={() =>
+                                        services.viewPreferences.updatePreferences({
+                                            appDetails: {
+                                                ...pref.appDetails,
+                                                enableWordWrap: !pref.appDetails.enableWordWrap
+                                            }
+                                        })
+                                    }
+                                />
+                                <label htmlFor='enableWordWrap'>Enable Word Wrap</label>
+                            </div>
+                            <YamlEditor enableWordWrap={pref.appDetails.enableWordWrap} input={props.controlled.state.targetState} hideModeButtons={true} />
+                        </React.Fragment>
+                    )}
+                </DataLoader>
+            )
         });
     }
 
     const readinessGatesState = React.useMemo(() => {
+        // If containers are not ready then readiness gate status is not important.
+        if (!props.live?.status?.containerStatuses?.length) {
+            return null;
+        }
+        if (props.live?.status?.containerStatuses?.some((containerStatus: {ready: boolean}) => !containerStatus.ready)) {
+            return null;
+        }
+
         if (props.live && props.node?.kind === 'Pod') {
             return getPodReadinessGatesState(props.live);
         }
@@ -259,7 +346,7 @@ export const ApplicationNodeInfo = (props: {
 
     return (
         <div>
-            {Boolean(readinessGatesState) && <ReadinessGatesFailedWarning readinessGatesState={readinessGatesState} />}
+            {Boolean(readinessGatesState) && <ReadinessGatesNotPassedWarning readinessGatesState={readinessGatesState} />}
             <div className='white-box'>
                 <div className='white-box__details'>
                     {attributes.map(attr => (
